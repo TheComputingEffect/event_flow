@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Event Flow",
+    "slug": "eventflow",
+    "scheme": "eventflow",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "Event Flow",
+      "shortName": "Event Flow",
+      "themeColor": "#0B63CD",
+      "backgroundColor": "#F6F7F9"
+    },
+    "plugins": ["expo-router", "expo-font"],
+    "experiments": { "typedRoutes": false }
+  }
+}

@@ -1,0 +1,56 @@
+/** Every colour in the app. Values come from EventFlow Redesign (4).pdf.
+ * Tile colours use `figure`, not `value`: the Reanimated Babel plugin treats `.value` in styles as a shared value. */
+export const colors = {
+  primary: '#0B63CD',
+  white: '#FFFFFF',
+  page: '#F6F7F9',
+  card: '#FFFFFF',
+  border: '#EDEEF0',
+  divider: '#EDEEF0',
+  track: '#EFF0F4',
+  ink: '#0F172A',
+  textLabel: '#424E5E',
+  textMuted: '#4C5461',
+  textFaint: '#727C88',
+  gridLine: '#EDEEF0',
+
+  header: {
+    background: '#0B63CD',
+    title: '#FFFFFF',
+    accent: '#BEDBFD',
+    bellCircle: 'rgba(255,255,255,0.16)',
+    badge: '#EA580C',
+  },
+  profit: {
+    background: '#0F172A',
+    decoration: 'rgba(255,255,255,0.06)',
+    label: '#95A2B5',
+    amount: '#FFFFFF',
+    upBackground: '#064D3B',
+    upText: '#6EE7B7',
+    neutralBackground: 'rgba(255,255,255,0.10)',
+    neutralText: '#95A2B5',
+  },
+  received: { figure: '#035FC0', bar: '#0B63CD', pillBg: '#E9F1FC', pillText: '#0F4E9A' },
+  toCollect: { figure: '#B14301', bar: '#E75A0A', pillBg: '#FEF2E2', pillText: '#AC4004' },
+  expenses: { figure: '#B01B13', bar: '#D42E1C', pillBg: '#FEECEA', pillText: '#B01B13' },
+  events: { figure: '#047453', bar: '#10A14F', pillBg: '#E6F5EE', pillText: '#047453' },
+
+  quickAction: {
+    event: { tile: '#E7EFFA', icon: '#105DB9' },
+    quote: { tile: '#F1EFFD', icon: '#7561D5' },
+    payment: { tile: '#E6F5F2', icon: '#148D7B' },
+    expense: { tile: '#FDEFE6', icon: '#DC5510' },
+  },
+  chart: {
+    received: '#0B63CD',
+    receivedLight: '#91B9EA',
+    expenses: '#E9580C',
+    expensesLight: '#F4B491',
+  },
+  remind: { border: '#E9C2AC', text: '#AC4004' },
+  dateBlock: { background: '#EDF8F2', border: '#B9DECC', weekday: '#475464' },
+  expenseIconTile: '#FEECEA',
+  tab: { active: '#0B63CD', inactive: '#677282', activePill: '#E4F0FF', background: '#FFFFFF' },
+  skeleton: '#E9EBEF',
+} as const;

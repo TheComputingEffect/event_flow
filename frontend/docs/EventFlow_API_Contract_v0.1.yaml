@@ -1,0 +1,4310 @@
+openapi: 3.0.3
+info:
+  title: EventFlow API
+  version: 0.1.0
+  description: 'Phase 1 API contract for EventFlow (The Computing Effect). SDLC Step 3. Status: for review, 24 Nov 2026.
+
+
+    Rules: REST + JSON over HTTPS · base path `/api/v1` · every response is `{success, data}` or `{success:false, error}` · money is a string
+    with 2 decimals · company always comes from the sign-in token · lists are paged (`page`, `size`) · app-made UUIDs make saves offline-safe
+    · one call per screen, one call per user action.
+
+
+    Rule from the SDLC: a new or changed API is added here first, reviewed, then coded.'
+servers:
+- url: https://api.eventflow.in/api/v1
+  description: Production (domain to be decided)
+- url: https://staging-api.eventflow.in/api/v1
+  description: Staging
+- url: http://localhost:8080/api/v1
+  description: Local
+security:
+- bearerAuth: []
+tags:
+- name: Auth
+  description: Sign in, tokens, PIN
+- name: Home
+  description: Dashboard
+- name: Clients
+  description: The event company's customers
+- name: Events
+  description: Events, items needed, reminders
+- name: Calendar
+  description: Month view
+- name: Payments
+  description: Money received
+- name: Expenses
+  description: Money spent
+- name: Sync
+  description: Offline upload
+- name: Crew
+  description: Crew, wages, crew payments
+- name: Quotations
+  description: Quotes, versions, approve, share
+- name: Public
+  description: Client-facing quote page (no sign-in)
+- name: Money
+  description: Accounts, stats, export
+- name: Notifications
+  description: Bell and push
+- name: Settings
+  description: Profile, lists, history
+- name: Ops
+  description: Monitoring
+paths:
+  /auth/login:
+    post:
+      tags:
+      - Auth
+      summary: Sign in with mobile + PIN
+      operationId: postAuthLogin
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/LoginResponse'
+                required:
+                - success
+                - data
+        '400': &id001
+          $ref: '#/components/responses/BadRequest'
+      security: []
+      description: 'Wrong PIN → 400 `INCORRECT_PIN` with `fields.attemptsLeft`. 5 wrong → 400 `ACCOUNT_LOCKED` with `lockedUntil`. A new sign-in
+        deactivates the previous device (one device at a time). Rate limited per mobile and per IP.
+
+
+        **PRD:** US-01'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+  /auth/refresh:
+    post:
+      tags:
+      - Auth
+      summary: Get a new access token
+      operationId: postAuthRefresh
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/TokenPair'
+                required:
+                - success
+                - data
+        '400': *id001
+      security: []
+      description: Fails with `SIGNED_IN_ELSEWHERE` if another device signed in later.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+  /auth/logout:
+    post:
+      tags:
+      - Auth
+      summary: Sign out this device
+      operationId: postAuthLogout
+      responses:
+        '204':
+          description: Done, no body.
+  /auth/change-pin:
+    post:
+      tags:
+      - Auth
+      summary: Change PIN (first login and Settings)
+      operationId: postAuthChangePin
+      responses:
+        '204':
+          description: Done, no body.
+        '400': *id001
+        '401': &id002
+          $ref: '#/components/responses/Unauthorized'
+      description: '**PRD:** US-02, US-25'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePinRequest'
+  /me:
+    get:
+      tags:
+      - Auth
+      summary: Current owner, company and enabled features
+      operationId: getMe
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Me'
+                required:
+                - success
+                - data
+        '401': *id002
+  /dashboard/home:
+    get:
+      tags:
+      - Home
+      summary: Everything the Home screen needs in one call
+      operationId: getDashboardHome
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/DashboardHome'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: '**PRD:** US-03'
+      parameters:
+      - name: month
+        in: query
+        required: false
+        schema:
+          type: string
+          example: 2026-11
+        description: 'Default: current month.'
+  /clients:
+    get:
+      tags:
+      - Clients
+      summary: Search clients
+      operationId: getClients
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Client'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      parameters:
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Name or mobile.
+      - &id004
+        name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+      - &id005
+        name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+    post:
+      tags:
+      - Clients
+      summary: Create client
+      operationId: postClients
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Client'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '409': &id009
+          $ref: '#/components/responses/Conflict'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientInput'
+  /clients/lookup:
+    get:
+      tags:
+      - Clients
+      summary: Find a client by mobile (name suggestion)
+      operationId: getClientsLookup
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Client'
+                required:
+                - success
+                - data
+        '401': *id002
+        '404': &id003
+          $ref: '#/components/responses/NotFound'
+      description: '**PRD:** US-04'
+      parameters:
+      - name: mobile
+        in: query
+        required: true
+        schema:
+          type: string
+  /clients/{id}:
+    patch:
+      tags:
+      - Clients
+      summary: Update client
+      operationId: patchClientsId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Client'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': &id007
+          $ref: '#/components/responses/Forbidden'
+        '404': *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientInput'
+      parameters:
+      - &id008
+        name: id
+        in: path
+        required: true
+        schema: &id011
+          type: string
+          format: uuid
+  /events:
+    get:
+      tags:
+      - Events
+      summary: Event list for a tab
+      operationId: getEvents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventSummary'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: 'Tab counts come from `GET /events/counts` (cached), so the list stays light.
+
+
+        **PRD:** US-05
+
+
+        **Feature flag:** `EVENTS`'
+      parameters:
+      - name: tab
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/EventStatus'
+      - name: date
+        in: query
+        required: false
+        schema: &id010
+          type: string
+          format: date
+        description: Only events on this day.
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Client name or phone.
+      - *id004
+      - *id005
+    post:
+      tags:
+      - Events
+      summary: Add event
+      operationId: postEvents
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventDetail'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+      description: '**PRD:** US-04'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+  /events/counts:
+    get:
+      tags:
+      - Events
+      summary: Counts per tab
+      operationId: getEventsCounts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      UPCOMING: &id006
+                        type: integer
+                      PENDING: *id006
+                      COMPLETED: *id006
+                      CANCELLED: *id006
+                required:
+                - success
+                - data
+        '401': *id002
+  /events/{id}:
+    get:
+      tags:
+      - Events
+      summary: Event detail with totals, payments, expenses, crew and items
+      operationId: getEventsId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventDetail'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: '**PRD:** US-06'
+      parameters:
+      - *id008
+    patch:
+      tags:
+      - Events
+      summary: Edit event
+      operationId: patchEventsId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventDetail'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: Send `version`; a stale version returns 409 `STALE_VERSION`. Moving the date to the future moves Pending → Upcoming (E-05).
+        Lowering agreed below received is allowed with a warning flag (E-02).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+      parameters:
+      - *id008
+    delete:
+      tags:
+      - Events
+      summary: Delete event (only without money entries)
+      operationId: deleteEventsId
+      responses:
+        '204':
+          description: Done, no body.
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: 409 `HAS_MONEY_ENTRIES` → cancel instead (E-21).
+      parameters:
+      - *id008
+  /events/{id}/complete:
+    post:
+      tags:
+      - Events
+      summary: Mark completed
+      operationId: postEventsIdComplete
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventSummary'
+                required:
+                - success
+                - data
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      parameters:
+      - *id008
+  /events/{id}/cancel:
+    post:
+      tags:
+      - Events
+      summary: Cancel event, optional refund
+      operationId: postEventsIdCancel
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventDetail'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: 'Refund 0 to received, stored as a negative payment. Unpaid crew removed; paid wages stay.
+
+
+        **PRD:** US-08'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRequest'
+      parameters:
+      - *id008
+  /events/{id}/reminder:
+    get:
+      tags:
+      - Events
+      summary: Ready WhatsApp reminder for the balance
+      operationId: getEventsIdReminder
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ReminderMessage'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: 'Owner sends it in WhatsApp; EventFlow never sends on its own. 409 `NO_BALANCE` when balance is 0 (E-20).
+
+
+        **PRD:** US-11a'
+      parameters:
+      - *id008
+  /events/{id}/items:
+    post:
+      tags:
+      - Events
+      summary: Add item needed
+      operationId: postEventsIdItems
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventItem'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: 'LENT items create a ''Lent item'' expense on the event.
+
+
+        **PRD:** US-08a'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventItemInput'
+      parameters:
+      - *id008
+  /event-items/{id}:
+    patch:
+      tags:
+      - Events
+      summary: Edit item needed (tick, qty, rent)
+      operationId: patchEventItemsId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventItem'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: Changing rent updates its expense (E-18).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventItemInput'
+      parameters:
+      - *id008
+    delete:
+      tags:
+      - Events
+      summary: Remove item needed
+      operationId: deleteEventItemsId
+      responses:
+        '204':
+          description: Done, no body.
+        '401': *id002
+        '404': *id003
+      parameters:
+      - *id008
+  /event-items/{id}/returned:
+    post:
+      tags:
+      - Events
+      summary: Mark lent item returned
+      operationId: postEventItemsIdReturned
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventItem'
+                required:
+                - success
+                - data
+        '401': *id002
+        '404': *id003
+      parameters:
+      - *id008
+  /calendar:
+    get:
+      tags:
+      - Calendar
+      summary: 'Month view: days with events and the events'
+      operationId: getCalendar
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CalendarMonth'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: '**PRD:** US-09'
+      parameters:
+      - name: month
+        in: query
+        required: true
+        schema:
+          type: string
+          example: 2026-11
+  /payments:
+    post:
+      tags:
+      - Payments
+      summary: Record payment (offline-safe)
+      operationId: postPayments
+      responses:
+        '201':
+          description: Created (or the existing one if this id was already saved)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Payment'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: 'Amount above balance without `confirmOverpayment` → 400 `OVERPAYMENT_NOT_CONFIRMED`. Future date → 400 `FUTURE_DATE` (E-04).
+
+
+        **PRD:** US-10
+
+
+        **Feature flag:** `PAYMENTS`'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentInput'
+  /payments/{id}:
+    patch:
+      tags:
+      - Payments
+      summary: Edit payment
+      operationId: patchPaymentsId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Payment'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: 'Writes old → new to change history.
+
+
+        **PRD:** US-11'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentInput'
+      parameters:
+      - *id008
+    delete:
+      tags:
+      - Payments
+      summary: Delete payment (soft delete)
+      operationId: deletePaymentsId
+      responses:
+        '204':
+          description: Done, no body.
+        '401': *id002
+        '404': *id003
+      description: '**PRD:** US-11'
+      parameters:
+      - *id008
+  /expenses:
+    get:
+      tags:
+      - Expenses
+      summary: List expenses
+      operationId: getExpenses
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Expense'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: '**Feature flag:** `EXPENSES`'
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema: *id010
+      - name: to
+        in: query
+        required: false
+        schema: *id010
+      - name: eventId
+        in: query
+        required: false
+        schema: *id011
+      - name: categoryId
+        in: query
+        required: false
+        schema: *id011
+      - *id004
+      - *id005
+    post:
+      tags:
+      - Expenses
+      summary: Add expense (offline-safe)
+      operationId: postExpenses
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Expense'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: '**PRD:** US-12'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseInput'
+  /expenses/{id}:
+    patch:
+      tags:
+      - Expenses
+      summary: Edit expense
+      operationId: patchExpensesId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Expense'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: 'Auto expenses (SALARY, LENT_ITEM) can only change through their source: 409 `AUTO_EXPENSE`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseInput'
+      parameters:
+      - *id008
+    delete:
+      tags:
+      - Expenses
+      summary: Delete expense (soft delete)
+      operationId: deleteExpensesId
+      responses:
+        '204':
+          description: Done, no body.
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      parameters:
+      - *id008
+  /sync:
+    post:
+      tags:
+      - Sync
+      summary: Upload entries saved offline, in one batch
+      operationId: postSync
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/SyncResult'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+      description: 'Each entry is processed on its own (one bad entry does not block others). Same id twice → `ALREADY_SAVED` (E-16). Failed entries
+        raise a ''couldn''t sync'' notification.
+
+
+        **PRD:** US-10, E-15–E-17'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequest'
+  /crew:
+    get:
+      tags:
+      - Crew
+      summary: Crew list with owed/paid and wages chart
+      operationId: getCrew
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CrewList'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: '**PRD:** US-13, US-15
+
+
+        **Feature flag:** `CREW`'
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - DUE
+          - ADVANCE
+          - SETTLED
+    post:
+      tags:
+      - Crew
+      summary: Add crew member
+      operationId: postCrew
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CrewMember'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CrewMemberInput'
+  /crew/{id}:
+    get:
+      tags:
+      - Crew
+      summary: 'Crew details: events, payments, advances, balance'
+      operationId: getCrewId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CrewDetail'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: '**PRD:** US-15a'
+      parameters:
+      - *id008
+    patch:
+      tags:
+      - Crew
+      summary: Edit or deactivate crew member
+      operationId: patchCrewId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CrewMember'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CrewMemberInput'
+      parameters:
+      - *id008
+  /events/{id}/crew:
+    post:
+      tags:
+      - Crew
+      summary: Assign crew to event
+      operationId: postEventsIdCrew
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventCrew'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: 'Same person twice → 409 `ALREADY_ASSIGNED`. Role can be added inline.
+
+
+        **PRD:** US-14'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventCrewInput'
+      parameters:
+      - *id008
+  /event-crew/{id}:
+    patch:
+      tags:
+      - Crew
+      summary: Change role or wage for this event
+      operationId: patchEventCrewId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventCrew'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventCrewInput'
+      parameters:
+      - *id008
+    delete:
+      tags:
+      - Crew
+      summary: Remove crew from event
+      operationId: deleteEventCrewId
+      responses:
+        '204':
+          description: Done, no body.
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: 409 `CREW_ALREADY_PAID` (E-07).
+      parameters:
+      - *id008
+  /crew/{id}/payments:
+    post:
+      tags:
+      - Crew
+      summary: Pay crew or give advance (offline-safe)
+      operationId: postCrewIdPayments
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CrewPayment'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: 'Applied oldest event first; extra is held as advance; each settled wage creates a Salary expense (BR-25/26/27).
+
+
+        **PRD:** US-15'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CrewPaymentInput'
+      parameters:
+      - *id008
+  /crew-payments/{id}:
+    patch:
+      tags:
+      - Crew
+      summary: Edit crew payment (re-applies allocations)
+      operationId: patchCrewPaymentsId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/CrewPayment'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CrewPaymentInput'
+      parameters:
+      - *id008
+    delete:
+      tags:
+      - Crew
+      summary: Delete crew payment
+      operationId: deleteCrewPaymentsId
+      responses:
+        '204':
+          description: Done, no body.
+        '401': *id002
+        '404': *id003
+      parameters:
+      - *id008
+  /quotations:
+    get:
+      tags:
+      - Quotations
+      summary: Quote list
+      operationId: getQuotations
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QuotationSummary'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: '**PRD:** US-16
+
+
+        **Feature flag:** `QUOTATIONS`'
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/QuotationStatus'
+      - name: month
+        in: query
+        required: false
+        schema:
+          type: string
+          example: 2026-11
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+      - *id004
+      - *id005
+    post:
+      tags:
+      - Quotations
+      summary: Create quote (v1, Draft)
+      operationId: postQuotations
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Quotation'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+      description: 'Number assigned per company under a lock: QT-0005 (Q-8).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotationInput'
+  /quotations/summary:
+    get:
+      tags:
+      - Quotations
+      summary: Counts per status and open value
+      operationId: getQuotationsSummary
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/QuotationStats'
+                required:
+                - success
+                - data
+        '401': *id002
+  /quotations/{id}:
+    get:
+      tags:
+      - Quotations
+      summary: Quote detail with active version and version list
+      operationId: getQuotationsId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Quotation'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: '**PRD:** US-17'
+      parameters:
+      - *id008
+  /quotations/{id}/versions/{no}:
+    get:
+      tags:
+      - Quotations
+      summary: View an older version (read-only)
+      operationId: getQuotationsIdVersionsNo
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/QuotationVersion'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      parameters:
+      - *id008
+      - name: 'no'
+        in: path
+        required: true
+        schema: *id006
+  /quotations/{id}/versions:
+    post:
+      tags:
+      - Quotations
+      summary: Revise quote (new version)
+      operationId: postQuotationsIdVersions
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ReviseResult'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: 'If the quote is already an event and the total changed, `eventUpdateNeeded=true`; the event is NOT changed until `apply-to-event`
+        (fixes Q-6).
+
+
+        **PRD:** US-17, US-20'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotationInput'
+      parameters:
+      - *id008
+  /quotations/{id}/apply-to-event:
+    post:
+      tags:
+      - Quotations
+      summary: 'Owner agreed: update event amount to the new total'
+      operationId: postQuotationsIdApplyToEvent
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventSummary'
+                required:
+                - success
+                - data
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: Logged in change history; event keeps quoted vs final (BR-06).
+      parameters:
+      - *id008
+  /quotations/{id}/status:
+    post:
+      tags:
+      - Quotations
+      summary: Set Draft / Sent / Rejected
+      operationId: postQuotationsIdStatus
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/QuotationSummary'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusRequest'
+      parameters:
+      - *id008
+  /quotations/{id}/approve:
+    post:
+      tags:
+      - Quotations
+      summary: 'Approve: create event, copy items, book advance'
+      operationId: postQuotationsIdApprove
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ApproveResult'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: 'One transaction: all or nothing, with a clear error (fixes Q-5). Second call returns the existing event (E-11).
+
+
+        **PRD:** US-20'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveRequest'
+      parameters:
+      - *id008
+  /quotations/{id}/share:
+    post:
+      tags:
+      - Quotations
+      summary: Create/get public link, mark Sent, get WhatsApp text
+      operationId: postQuotationsIdShare
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ShareResult'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      description: 'Link points to the public quote page (fixes Q-3).
+
+
+        **PRD:** US-18'
+      parameters:
+      - *id008
+  /quotations/{id}/share-link:
+    patch:
+      tags:
+      - Quotations
+      summary: Turn the public link on or off
+      operationId: patchQuotationsIdShareLink
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      isEnabled: &id012
+                        type: boolean
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                isEnabled: *id012
+              required:
+              - isEnabled
+      parameters:
+      - *id008
+  /quotations/{id}/pdf:
+    get:
+      tags:
+      - Quotations
+      summary: Download quote PDF
+      operationId: getQuotationsIdPdf
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400': *id001
+        '401': *id002
+        '403': *id007
+        '404': *id003
+      parameters:
+      - *id008
+      - name: version
+        in: query
+        required: false
+        schema: *id006
+  /public/quotes/{token}:
+    get:
+      tags:
+      - Public
+      summary: Public quote page data (no sign-in)
+      operationId: getPublicQuotesToken
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/PublicQuote'
+                required:
+                - success
+                - data
+        '404': *id003
+      security: []
+      description: 'Counts a visit. Disabled/deleted → 404 `QUOTE_UNAVAILABLE` (E-12). Rate limited per IP.
+
+
+        **PRD:** US-19'
+      parameters:
+      - &id013
+        name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 32
+  /public/quotes/{token}/pdf:
+    get:
+      tags:
+      - Public
+      summary: Public quote PDF
+      operationId: getPublicQuotesTokenPdf
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404': *id003
+      security: []
+      parameters:
+      - *id013
+  /money/accounts:
+    get:
+      tags:
+      - Money
+      summary: 'Accounts tab: tiles, chart, money in/out'
+      operationId: getMoneyAccounts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Accounts'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: '**PRD:** US-21
+
+
+        **Feature flag:** `MONEY_STATS`'
+      parameters:
+      - name: period
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - WEEK
+          - MONTH
+          - YEAR
+          - ALL
+      - name: date
+        in: query
+        required: false
+        schema: *id010
+        description: Any day in the wanted period.
+  /money/transactions:
+    get:
+      tags:
+      - Money
+      summary: All transactions (filterable)
+      operationId: getMoneyTransactions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      parameters:
+      - name: type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - IN
+          - OUT
+          - ALL
+      - name: from
+        in: query
+        required: false
+        schema: *id010
+      - name: to
+        in: query
+        required: false
+        schema: *id010
+      - *id004
+      - *id005
+  /money/balance-due:
+    get:
+      tags:
+      - Money
+      summary: Everything still to collect, largest first
+      operationId: getMoneyBalanceDue
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BalanceDueRow'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: Always all events, not the chosen period (BR-14b).
+      parameters:
+      - *id004
+      - *id005
+  /money/stats:
+    get:
+      tags:
+      - Money
+      summary: 'Stats: P&L, per event, pending, expenses (last 6 months)'
+      operationId: getMoneyStats
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Stats'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: '**PRD:** US-22'
+      parameters:
+      - name: view
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - PNL
+          - PER_EVENT
+          - PENDING
+          - EXPENSES
+  /money/export:
+    get:
+      tags:
+      - Money
+      summary: Export current report as PDF
+      operationId: getMoneyExport
+      responses:
+        '200':
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400': *id001
+        '401': *id002
+      description: '**PRD:** US-23'
+      parameters:
+      - name: report
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - ACCOUNTS
+          - PNL
+          - PER_EVENT
+          - PENDING
+          - EXPENSES
+      - name: period
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - WEEK
+          - MONTH
+          - YEAR
+          - ALL
+      - name: date
+        in: query
+        required: false
+        schema: *id010
+  /notifications:
+    get:
+      tags:
+      - Notifications
+      summary: Bell list
+      operationId: getNotifications
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: '**Feature flag:** `NOTIFICATIONS`'
+      parameters:
+      - name: tab
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - ALL
+          - PAYMENTS
+          - EVENTS
+          - QUOTES
+          - CREW
+      - *id004
+      - *id005
+  /notifications/unread-count:
+    get:
+      tags:
+      - Notifications
+      summary: Unread count for the bell
+      operationId: getNotificationsUnreadCount
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      count: *id006
+                required:
+                - success
+                - data
+        '401': *id002
+  /notifications/{id}/read:
+    post:
+      tags:
+      - Notifications
+      summary: Mark one as read
+      operationId: postNotificationsIdRead
+      responses:
+        '204':
+          description: Done, no body.
+        '401': *id002
+        '404': *id003
+      parameters:
+      - *id008
+  /notifications/read-all:
+    post:
+      tags:
+      - Notifications
+      summary: Mark all as read
+      operationId: postNotificationsReadAll
+      responses:
+        '204':
+          description: Done, no body.
+        '401': *id002
+  /push-subscriptions:
+    post:
+      tags:
+      - Notifications
+      summary: Register this device for push
+      operationId: postPushSubscriptions
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      id: *id011
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushSubscriptionInput'
+  /push-subscriptions/{id}:
+    delete:
+      tags:
+      - Notifications
+      summary: Stop push on this device
+      operationId: deletePushSubscriptionsId
+      responses:
+        '204':
+          description: Done, no body.
+        '401': *id002
+        '404': *id003
+      parameters:
+      - *id008
+  /settings/business-profile:
+    get:
+      tags:
+      - Settings
+      summary: Get business profile
+      operationId: getSettingsBusinessProfile
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/BusinessProfile'
+                required:
+                - success
+                - data
+        '401': *id002
+    put:
+      tags:
+      - Settings
+      summary: Save business profile
+      operationId: putSettingsBusinessProfile
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/BusinessProfile'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+      description: '**PRD:** US-25'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BusinessProfile'
+  /settings/business-profile/logo:
+    post:
+      tags:
+      - Settings
+      summary: Upload logo (PNG/JPG, max 1 MB)
+      operationId: postSettingsBusinessProfileLogo
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      logoUrl:
+                        type: string
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+  /settings/quotation:
+    get:
+      tags:
+      - Settings
+      summary: Get quotation settings
+      operationId: getSettingsQuotation
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/QuotationSettings'
+                required:
+                - success
+                - data
+        '401': *id002
+    put:
+      tags:
+      - Settings
+      summary: Save quotation settings
+      operationId: putSettingsQuotation
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/QuotationSettings'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotationSettings'
+  /event-types:
+    get:
+      tags:
+      - Settings
+      summary: List event types
+      operationId: getEventTypes
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NamedEntry'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      parameters:
+      - name: includeInactive
+        in: query
+        required: false
+        schema: *id012
+    post:
+      tags:
+      - Settings
+      summary: Add to event types
+      operationId: postEventTypes
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/NamedEntry'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '409': *id009
+      description: Duplicate name in this company → 409 `DUPLICATE_NAME`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamedEntryInput'
+  /event-types/{id}:
+    patch:
+      tags:
+      - Settings
+      summary: Rename or deactivate in event types
+      operationId: patchEventTypesId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/NamedEntry'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: 'No delete: used values are deactivated (E-09).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamedEntryInput'
+      parameters:
+      - *id008
+  /crew-roles:
+    get:
+      tags:
+      - Settings
+      summary: List crew roles
+      operationId: getCrewRoles
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NamedEntry'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      parameters:
+      - name: includeInactive
+        in: query
+        required: false
+        schema: *id012
+    post:
+      tags:
+      - Settings
+      summary: Add to crew roles
+      operationId: postCrewRoles
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/NamedEntry'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '409': *id009
+      description: Duplicate name in this company → 409 `DUPLICATE_NAME`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamedEntryInput'
+  /crew-roles/{id}:
+    patch:
+      tags:
+      - Settings
+      summary: Rename or deactivate in crew roles
+      operationId: patchCrewRolesId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/NamedEntry'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: 'No delete: used values are deactivated (E-09).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamedEntryInput'
+      parameters:
+      - *id008
+  /expense-categories:
+    get:
+      tags:
+      - Settings
+      summary: List expense categories
+      operationId: getExpenseCategories
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NamedEntry'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      parameters:
+      - name: includeInactive
+        in: query
+        required: false
+        schema: *id012
+    post:
+      tags:
+      - Settings
+      summary: Add to expense categories
+      operationId: postExpenseCategories
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/NamedEntry'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '409': *id009
+      description: Duplicate name in this company → 409 `DUPLICATE_NAME`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamedEntryInput'
+  /expense-categories/{id}:
+    patch:
+      tags:
+      - Settings
+      summary: Rename or deactivate in expense categories
+      operationId: patchExpenseCategoriesId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/NamedEntry'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: 'No delete: used values are deactivated (E-09).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamedEntryInput'
+      parameters:
+      - *id008
+  /item-groups:
+    get:
+      tags:
+      - Settings
+      summary: List item groups
+      operationId: getItemGroups
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NamedEntry'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      parameters:
+      - name: includeInactive
+        in: query
+        required: false
+        schema: *id012
+    post:
+      tags:
+      - Settings
+      summary: Add to item groups
+      operationId: postItemGroups
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/NamedEntry'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '409': *id009
+      description: Duplicate name in this company → 409 `DUPLICATE_NAME`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamedEntryInput'
+  /item-groups/{id}:
+    patch:
+      tags:
+      - Settings
+      summary: Rename or deactivate in item groups
+      operationId: patchItemGroupsId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/NamedEntry'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      description: 'No delete: used values are deactivated (E-09).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NamedEntryInput'
+      parameters:
+      - *id008
+  /items:
+    get:
+      tags:
+      - Settings
+      summary: List items (catalogue)
+      operationId: getItems
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Item'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      parameters:
+      - name: groupId
+        in: query
+        required: false
+        schema: *id011
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: includeInactive
+        in: query
+        required: false
+        schema: *id012
+      - *id004
+      - *id005
+    post:
+      tags:
+      - Settings
+      summary: Add item
+      operationId: postItems
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Item'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '409': *id009
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemInput'
+  /items/{id}:
+    patch:
+      tags:
+      - Settings
+      summary: Edit item (rate change is logged)
+      operationId: patchItemsId
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Item'
+                required:
+                - success
+                - data
+        '400': *id001
+        '401': *id002
+        '404': *id003
+        '409': *id009
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemInput'
+      parameters:
+      - *id008
+  /items/{id}/rate-history:
+    get:
+      tags:
+      - Settings
+      summary: Rate history of an item
+      operationId: getItemsIdRateHistory
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RateChange'
+                required:
+                - success
+                - data
+        '401': *id002
+        '404': *id003
+      parameters:
+      - *id008
+  /change-history:
+    get:
+      tags:
+      - Settings
+      summary: Change history (read-only)
+      operationId: getChangeHistory
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChangeEntry'
+                  page:
+                    $ref: '#/components/schemas/PageMeta'
+                required:
+                - success
+                - data
+        '401': *id002
+      description: '**PRD:** US-26'
+      parameters:
+      - name: entity
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - payments
+          - expenses
+          - crew_payments
+          - events
+          - quotations
+          - settings
+      - name: from
+        in: query
+        required: false
+        schema: *id010
+      - name: to
+        in: query
+        required: false
+        schema: *id010
+      - *id004
+      - *id005
+  /health:
+    get:
+      tags:
+      - Ops
+      summary: Health check for the uptime monitor
+      operationId: getHealth
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Health'
+                required:
+                - success
+                - data
+      security: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token from /auth/login. Carries user, company and device; the server never trusts a company id from the request.
+  schemas:
+    Money:
+      type: string
+      pattern: ^-?\d{1,12}\.\d{2}$
+      example: '15000.00'
+      description: Exact rupee amount as text, 2 decimals. Never a float.
+    ApiError:
+      type: object
+      properties:
+        code:
+          type: string
+          example: BALANCE_EXCEEDED
+        message:
+          type: string
+          example: Amount is more than the balance due.
+        fields:
+          type: object
+          additionalProperties:
+            type: string
+          description: Field-level errors for forms.
+      required:
+      - code
+      - message
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          $ref: '#/components/schemas/ApiError'
+      required:
+      - success
+      - error
+    PageMeta:
+      type: object
+      properties:
+        page: *id006
+        size: *id006
+        totalItems: *id006
+        totalPages: *id006
+    Feature:
+      type: string
+      enum:
+      - EVENTS
+      - PAYMENTS
+      - EXPENSES
+      - CREW
+      - QUOTATIONS
+      - MONEY_STATS
+      - NOTIFICATIONS
+      - SETTINGS
+    PaymentMode:
+      type: string
+      enum:
+      - UPI
+      - CASH
+    LoginRequest:
+      type: object
+      properties:
+        mobile:
+          type: string
+          pattern: ^\+91\d{10}$
+          example: '+919876543210'
+        pin:
+          type: string
+          pattern: ^\d{4}$
+          example: '4821'
+        keepSignedIn: *id012
+        device:
+          type: object
+          properties:
+            platform:
+              type: string
+              enum:
+              - WEB
+              - ANDROID
+              - IOS
+            label:
+              type: string
+              example: Chrome on Android
+      required:
+      - mobile
+      - pin
+      - device
+    TokenPair:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: Short-lived (15 min) JWT.
+        refreshToken:
+          type: string
+          description: Long-lived, one active device.
+        expiresIn: *id006
+    LoginResponse:
+      type: object
+      properties:
+        tokens:
+          $ref: '#/components/schemas/TokenPair'
+        mustChangePin: *id012
+        me:
+          $ref: '#/components/schemas/Me'
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required:
+      - refreshToken
+    ChangePinRequest:
+      type: object
+      properties:
+        currentPin:
+          type: string
+          pattern: ^\d{4}$
+        newPin:
+          type: string
+          pattern: ^\d{4}$
+          description: Not equal to old; not 0000, 1234 or four same digits.
+      required:
+      - currentPin
+      - newPin
+    Me:
+      type: object
+      properties:
+        userId: *id011
+        name:
+          type: string
+        mobile:
+          type: string
+        role:
+          type: string
+          enum:
+          - OWNER
+        company:
+          type: object
+          properties:
+            id: *id011
+            name:
+              type: string
+              example: Sri Balaji Events
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/Feature'
+    MonthPoint:
+      type: object
+      properties:
+        month:
+          type: string
+          example: 2026-11
+        received: &id014
+          $ref: '#/components/schemas/Money'
+        expenses: *id014
+        profit: *id014
+    DashboardHome:
+      type: object
+      properties:
+        month:
+          type: string
+          example: 2026-11
+        profit:
+          type: object
+          properties:
+            profitSoFar: *id014
+            expectedProfit: *id014
+            changeVsLastMonthPct:
+              type: number
+              nullable: true
+              example: 12.5
+        received:
+          type: object
+          properties:
+            amount: *id014
+            billed: *id014
+            percentOfBilled:
+              type: number
+            paymentCount:
+              type: integer
+              example: 3
+              description: 'PROPOSED for Home — awaiting backend approval. Number of payments received this month (\"3 payments\").'
+        toCollect:
+          type: object
+          properties:
+            amount: *id014
+            collected:
+              allOf:
+              - $ref: '#/components/schemas/Money'
+              description: 'PROPOSED for Home — awaiting backend approval. Total received so far on the events that make up To collect (BR-14b).'
+            billed:
+              allOf:
+              - $ref: '#/components/schemas/Money'
+              description: 'PROPOSED for Home — awaiting backend approval. Total agreed amount of the events that make up To collect (BR-14b).'
+            clientCount:
+              type: integer
+              example: 3
+              description: 'PROPOSED for Home — awaiting backend approval. Number of clients with a balance due.'
+            byClient:
+              type: array
+              items:
+                $ref: '#/components/schemas/BalanceDueRow'
+        expenses:
+          type: object
+          properties:
+            amount: *id014
+            count:
+              type: integer
+              example: 2
+              description: 'PROPOSED for Home — awaiting backend approval. Number of expenses this month.'
+            recent:
+              type: array
+              items:
+                $ref: '#/components/schemas/Expense'
+        events:
+          type: object
+          properties:
+            thisMonth: *id006
+            done: *id006
+            upcomingCount:
+              type: integer
+              example: 4
+              description: 'PROPOSED for Home — awaiting backend approval. Total number of upcoming events (the list may be shorter).'
+            upcoming:
+              type: array
+              items:
+                $ref: '#/components/schemas/EventSummary'
+        chart:
+          type: array
+          items:
+            $ref: '#/components/schemas/MonthPoint'
+        unreadNotifications: *id006
+    Client:
+      type: object
+      properties:
+        id: *id011
+        name:
+          type: string
+          example: Meera Nair
+        mobile:
+          type: string
+          example: '+919840012345'
+        notes:
+          type: string
+    ClientInput:
+      type: object
+      properties:
+        name:
+          type: string
+        mobile:
+          type: string
+          pattern: ^\+91\d{10}$
+        notes:
+          type: string
+      required:
+      - name
+      - mobile
+    EventStatus:
+      type: string
+      enum:
+      - UPCOMING
+      - PENDING
+      - COMPLETED
+      - CANCELLED
+    PaymentStatus:
+      type: string
+      enum:
+      - UNPAID
+      - PARTIAL
+      - PAID
+      - OVERPAID
+    Location:
+      type: object
+      properties:
+        venueName:
+          type: string
+          example: Green Park Hall
+        mapsUrl:
+          type: string
+          nullable: true
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+    EventTotals:
+      type: object
+      properties:
+        agreed: *id014
+        quoted:
+          $ref: '#/components/schemas/Money'
+          nullable: true
+        received: *id014
+        balance: *id014
+        percentCollected:
+          type: number
+          nullable: true
+        expenses: *id014
+        profitSoFar: *id014
+        expectedProfit: *id014
+        paymentStatus:
+          $ref: '#/components/schemas/PaymentStatus'
+    EventSummary:
+      type: object
+      properties:
+        id: *id011
+        client:
+          $ref: '#/components/schemas/Client'
+        eventType:
+          type: string
+          example: Wedding Reception
+        startDate: *id010
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        startTime:
+          type: string
+          example: '19:00'
+        venueName:
+          type: string
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        totals:
+          $ref: '#/components/schemas/EventTotals'
+    EventDetail:
+      allOf:
+      - $ref: '#/components/schemas/EventSummary'
+      - type: object
+        properties:
+          location:
+            $ref: '#/components/schemas/Location'
+          notes:
+            type: string
+          quotationId:
+            type: string
+            format: uuid
+            nullable: true
+          payments:
+            type: array
+            items:
+              $ref: '#/components/schemas/Payment'
+          expenses:
+            type: array
+            items:
+              $ref: '#/components/schemas/Expense'
+          crew:
+            type: array
+            items:
+              $ref: '#/components/schemas/EventCrew'
+          items:
+            type: array
+            items:
+              $ref: '#/components/schemas/EventItem'
+          cancelReason:
+            type: string
+            nullable: true
+          version: *id006
+    EventInput:
+      type: object
+      properties:
+        client:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              nullable: true
+            name:
+              type: string
+            mobile:
+              type: string
+          description: Existing client id, or name + mobile to find or create.
+        eventTypeId: *id011
+        startDate: *id010
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        startTime:
+          type: string
+          nullable: true
+        endTime:
+          type: string
+          nullable: true
+        location:
+          $ref: '#/components/schemas/Location'
+        agreedAmount:
+          $ref: '#/components/schemas/Money'
+          nullable: true
+        advance:
+          type: object
+          properties:
+            id: *id011
+            amount: *id014
+            mode:
+              $ref: '#/components/schemas/PaymentMode'
+            paidOn: *id010
+          description: Optional. Creates a payment (US-04).
+        notes:
+          type: string
+        version:
+          type: integer
+          description: Required on PATCH (optimistic lock).
+      required:
+      - client
+      - eventTypeId
+      - startDate
+    CancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          nullable: true
+        refund:
+          type: object
+          properties:
+            id: *id011
+            amount: *id014
+            mode:
+              $ref: '#/components/schemas/PaymentMode'
+            paidOn: *id010
+          description: 0 to received. Omit for no refund.
+    EventItem:
+      type: object
+      properties:
+        id: *id011
+        itemId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+          example: Par light
+        quantity: *id006
+        ownership:
+          type: string
+          enum:
+          - OWNED
+          - LENT
+        supplierName:
+          type: string
+          nullable: true
+        rentAmount:
+          $ref: '#/components/schemas/Money'
+          nullable: true
+        isReady: *id012
+        returnedAt:
+          type: string
+          format: date-time
+          nullable: true
+    EventItemInput:
+      type: object
+      properties:
+        id: *id011
+        itemId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        quantity: *id006
+        ownership:
+          type: string
+          enum:
+          - OWNED
+          - LENT
+        supplierName:
+          type: string
+        rentAmount: *id014
+        isReady: *id012
+      required:
+      - name
+      - quantity
+      - ownership
+    ReminderMessage:
+      type: object
+      properties:
+        phone:
+          type: string
+        text:
+          type: string
+          example: 'Hi Divya, a gentle reminder: ₹45,000 is pending for your Wedding on Sat, 28 Nov 2026. Thank you! — Sri Balaji Events'
+        whatsappUrl:
+          type: string
+          example: https://wa.me/919840012345?text=...
+    CalendarMonth:
+      type: object
+      properties:
+        month:
+          type: string
+          example: 2026-11
+        days:
+          type: array
+          items:
+            type: object
+            properties:
+              date: *id010
+              eventCount: *id006
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventSummary'
+    PaymentInput:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Created by the app. Same id twice = saved once.
+        eventId: *id011
+        amount: *id014
+        mode:
+          $ref: '#/components/schemas/PaymentMode'
+        paidOn: *id010
+        reference:
+          type: string
+        note:
+          type: string
+        confirmOverpayment:
+          type: boolean
+          description: Must be true when amount > balance (BR-16).
+      required:
+      - id
+      - eventId
+      - amount
+      - mode
+      - paidOn
+    Payment:
+      type: object
+      properties:
+        id: *id011
+        eventId: *id011
+        amount: *id014
+        kind:
+          type: string
+          enum:
+          - PAYMENT
+          - REFUND
+        mode:
+          $ref: '#/components/schemas/PaymentMode'
+        paidOn: *id010
+        reference:
+          type: string
+        note:
+          type: string
+        source:
+          type: string
+          enum:
+          - APP
+          - OFFLINE_SYNC
+          - QUOTE_APPROVAL
+    ExpenseInput:
+      type: object
+      properties:
+        id: *id011
+        eventId:
+          type: string
+          format: uuid
+          nullable: true
+        category:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              nullable: true
+            newName:
+              type: string
+              nullable: true
+          description: Pick an id or add a new category inline.
+        amount: *id014
+        mode:
+          $ref: '#/components/schemas/PaymentMode'
+        spentOn: *id010
+        note:
+          type: string
+      required:
+      - id
+      - category
+      - amount
+      - mode
+      - spentOn
+    Expense:
+      type: object
+      properties:
+        id: *id011
+        eventId:
+          type: string
+          format: uuid
+          nullable: true
+        category:
+          type: object
+          properties:
+            id: *id011
+            name:
+              type: string
+              example: Transport
+        amount: *id014
+        mode:
+          $ref: '#/components/schemas/PaymentMode'
+        spentOn: *id010
+        note:
+          type: string
+        source:
+          type: string
+          enum:
+          - MANUAL
+          - SALARY
+          - LENT_ITEM
+        eventClientName:
+          type: string
+          nullable: true
+          example: Meera Nair
+          description: 'PROPOSED for Home — awaiting backend approval. Client name of the linked event; null for general expenses.'
+        crewMemberName:
+          type: string
+          nullable: true
+          example: Karthik
+          description: 'PROPOSED for Home — awaiting backend approval. Crew member name for Salary expenses; null otherwise.'
+    SyncRequest:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum:
+                - PAYMENT
+                - EXPENSE
+                - CREW_PAYMENT
+              op:
+                type: string
+                enum:
+                - CREATE
+                - UPDATE
+                - DELETE
+              createdOffline: &id015
+                type: string
+                format: date-time
+              payload:
+                description: PaymentInput, ExpenseInput or CrewPaymentInput.
+                type: object
+            required:
+            - type
+            - op
+            - payload
+      required:
+      - entries
+    SyncResult:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id: *id011
+              status:
+                type: string
+                enum:
+                - SAVED
+                - ALREADY_SAVED
+                - FAILED
+              error:
+                $ref: '#/components/schemas/ApiError'
+    CrewMember:
+      type: object
+      properties:
+        id: *id011
+        name:
+          type: string
+          example: Karthik
+        phone:
+          type: string
+        defaultRole:
+          type: string
+          example: Light boy
+        defaultRate: *id014
+        isActive: *id012
+        summary:
+          type: object
+          properties:
+            events: *id006
+            wages: *id014
+            paid: *id014
+            owed: *id014
+            advance: *id014
+            status:
+              type: string
+              enum:
+              - DUE
+              - ADVANCE
+              - SETTLED
+    CrewMemberInput:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        defaultRoleId:
+          type: string
+          format: uuid
+          nullable: true
+        defaultRate: *id014
+        isActive: *id012
+      required:
+      - name
+      - defaultRate
+    CrewList:
+      type: object
+      properties:
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/CrewMember'
+        totals:
+          type: object
+          properties:
+            wages: *id014
+            paid: *id014
+            owed: *id014
+        wagesByPerson:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              wages: *id014
+    CrewDetail:
+      type: object
+      properties:
+        member:
+          $ref: '#/components/schemas/CrewMember'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventCrew'
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/CrewPayment'
+    EventCrew:
+      type: object
+      properties:
+        id: *id011
+        eventId: *id011
+        crewMemberId: *id011
+        name:
+          type: string
+        role:
+          type: string
+        wage: *id014
+        paid: *id014
+        owed: *id014
+    EventCrewInput:
+      type: object
+      properties:
+        crewMemberId: *id011
+        role:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              nullable: true
+            newName:
+              type: string
+              nullable: true
+        wage: *id014
+      required:
+      - crewMemberId
+      - role
+      - wage
+    CrewPaymentInput:
+      type: object
+      properties:
+        id: *id011
+        amount: *id014
+        mode:
+          $ref: '#/components/schemas/PaymentMode'
+        paidOn: *id010
+        note:
+          type: string
+      required:
+      - id
+      - amount
+      - mode
+      - paidOn
+    CrewPayment:
+      type: object
+      properties:
+        id: *id011
+        amount: *id014
+        mode:
+          $ref: '#/components/schemas/PaymentMode'
+        paidOn: *id010
+        note:
+          type: string
+        allocations:
+          type: array
+          items:
+            type: object
+            properties:
+              eventCrewId: *id011
+              eventName:
+                type: string
+              amount: *id014
+        advanceLeft: *id014
+    QuotationStatus:
+      type: string
+      enum:
+      - DRAFT
+      - SENT
+      - APPROVED
+      - REJECTED
+    QuotationLineInput:
+      type: object
+      properties:
+        itemId:
+          type: string
+          format: uuid
+          nullable: true
+        groupName:
+          type: string
+        itemName:
+          type: string
+        unit:
+          type: string
+        rate: *id014
+        quantity: *id006
+        isCustom: *id012
+      required:
+      - itemName
+      - rate
+      - quantity
+    QuotationLine:
+      allOf:
+      - $ref: '#/components/schemas/QuotationLineInput'
+      - type: object
+        properties:
+          id: *id011
+          amount: *id014
+          isRateEdited: *id012
+    QuotationInput:
+      type: object
+      properties:
+        client:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              nullable: true
+            name:
+              type: string
+            mobile:
+              type: string
+        eventTypeId: *id011
+        eventDate:
+          type: string
+          format: date
+          nullable: true
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        eventTime:
+          type: string
+          nullable: true
+        venue:
+          type: string
+          nullable: true
+        discount:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+              - NONE
+              - PERCENT
+              - AMOUNT
+            value: *id014
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuotationLineInput'
+      required:
+      - client
+      - eventTypeId
+      - lines
+    QuotationVersion:
+      type: object
+      properties:
+        versionNo: *id006
+        subtotal: *id014
+        discountType:
+          type: string
+          enum:
+          - NONE
+          - PERCENT
+          - AMOUNT
+        discountValue: *id014
+        discountAmount: *id014
+        afterDiscount: *id014
+        roundOff: *id014
+        grandTotal: *id014
+        createdAt: *id015
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuotationLine'
+    QuotationSummary:
+      type: object
+      properties:
+        id: *id011
+        number:
+          type: string
+          example: QT-0005
+        client:
+          $ref: '#/components/schemas/Client'
+        eventType:
+          type: string
+        eventDate:
+          type: string
+          format: date
+          nullable: true
+        status:
+          $ref: '#/components/schemas/QuotationStatus'
+        activeVersionNo: *id006
+        grandTotal: *id014
+        eventId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt: *id015
+    Quotation:
+      allOf:
+      - $ref: '#/components/schemas/QuotationSummary'
+      - type: object
+        properties:
+          venue:
+            type: string
+          eventTime:
+            type: string
+          activeVersion:
+            $ref: '#/components/schemas/QuotationVersion'
+          versions:
+            type: array
+            items:
+              type: object
+              properties:
+                versionNo: *id006
+                grandTotal: *id014
+                createdAt: *id015
+          shareLink:
+            type: object
+            properties:
+              url:
+                type: string
+              isEnabled: *id012
+              visits: *id006
+            nullable: true
+          version: *id006
+    QuotationStats:
+      type: object
+      properties:
+        counts:
+          type: object
+          properties:
+            DRAFT: *id006
+            SENT: *id006
+            APPROVED: *id006
+            REJECTED: *id006
+        openValue: *id014
+    ReviseResult:
+      type: object
+      properties:
+        quotation:
+          $ref: '#/components/schemas/Quotation'
+        eventUpdateNeeded:
+          type: boolean
+          description: 'True when the quote is already an event and the total changed: app asks ''Update the event amount to ₹X?'''
+        newEventAmount:
+          $ref: '#/components/schemas/Money'
+          nullable: true
+    StatusRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - SENT
+          - REJECTED
+      required:
+      - status
+    ApproveRequest:
+      type: object
+      properties:
+        advance:
+          type: object
+          properties:
+            id: *id011
+            amount: *id014
+            mode:
+              $ref: '#/components/schemas/PaymentMode'
+            paidOn: *id010
+          nullable: true
+          description: Optional. Dated the day received (fixes Q-4).
+    ApproveResult:
+      type: object
+      properties:
+        quotation:
+          $ref: '#/components/schemas/QuotationSummary'
+        event:
+          $ref: '#/components/schemas/EventSummary'
+        alreadyConverted:
+          type: boolean
+          description: 'True when the quote was already an event: existing event returned (E-11).'
+    ShareResult:
+      type: object
+      properties:
+        publicUrl:
+          type: string
+          example: https://q.eventflow.in/q/8fK2...Xa
+        whatsappUrl:
+          type: string
+        text:
+          type: string
+        status:
+          $ref: '#/components/schemas/QuotationStatus'
+    PublicQuote:
+      type: object
+      properties:
+        business:
+          type: object
+          properties:
+            name:
+              type: string
+            logoUrl:
+              type: string
+            phone:
+              type: string
+        number:
+          type: string
+        versionNo: *id006
+        clientName:
+          type: string
+        eventDate:
+          type: string
+          format: date
+          nullable: true
+        version:
+          $ref: '#/components/schemas/QuotationVersion'
+        terms:
+          type: string
+        validUntil:
+          type: string
+          format: date
+          nullable: true
+        pdfUrl:
+          type: string
+        poweredBy:
+          type: object
+          properties:
+            text:
+              type: string
+              example: Made with EventFlow — run your event business
+            url:
+              type: string
+    BalanceDueRow:
+      type: object
+      properties:
+        eventId: *id011
+        clientName:
+          type: string
+        eventName:
+          type: string
+        eventDate: *id010
+        balance: *id014
+        received:
+          allOf:
+          - $ref: '#/components/schemas/Money'
+          description: 'PROPOSED for Home — awaiting backend approval. Amount received so far for this event.'
+        agreed:
+          allOf:
+          - $ref: '#/components/schemas/Money'
+          description: 'PROPOSED for Home — awaiting backend approval. Agreed amount for this event.'
+    Transaction:
+      type: object
+      properties:
+        id: *id011
+        type:
+          type: string
+          enum:
+          - IN
+          - OUT
+        kind:
+          type: string
+          example: PAYMENT
+        title:
+          type: string
+        amount: *id014
+        mode:
+          $ref: '#/components/schemas/PaymentMode'
+        date: *id010
+        eventId:
+          type: string
+          format: uuid
+          nullable: true
+    Accounts:
+      type: object
+      properties:
+        period:
+          type: string
+          enum:
+          - WEEK
+          - MONTH
+          - YEAR
+          - ALL
+        from: *id010
+        to: *id010
+        tiles:
+          type: object
+          properties:
+            received: *id014
+            spent: *id014
+            netProfit: *id014
+            pending: *id014
+        chart:
+          type: array
+          items:
+            $ref: '#/components/schemas/MonthPoint'
+        moneyIn:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+        moneyOut:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+    Stats:
+      type: object
+      properties:
+        view:
+          type: string
+          enum:
+          - PNL
+          - PER_EVENT
+          - PENDING
+          - EXPENSES
+        from: *id010
+        to: *id010
+        tiles:
+          type: object
+          properties:
+            received: *id014
+            expenses: *id014
+            netProfit: *id014
+            perEvent: *id014
+        monthly:
+          type: array
+          items:
+            $ref: '#/components/schemas/MonthPoint'
+        topEvents:
+          type: array
+          items:
+            type: object
+            properties:
+              eventId: *id011
+              name:
+                type: string
+              profit: *id014
+        pending:
+          type: array
+          items:
+            $ref: '#/components/schemas/BalanceDueRow'
+        expensesByCategory:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                type: string
+              amount: *id014
+    Notification:
+      type: object
+      properties:
+        id: *id011
+        type:
+          type: string
+          example: BALANCE_DUE
+        tab:
+          type: string
+          enum:
+          - PAYMENTS
+          - EVENTS
+          - QUOTES
+          - CREW
+        title:
+          type: string
+        body:
+          type: string
+        ref:
+          type: object
+          properties:
+            type:
+              type: string
+            id: *id011
+        action:
+          type: string
+          nullable: true
+          example: SEND_REMINDER
+        isRead: *id012
+        createdAt: *id015
+    PushSubscriptionInput:
+      type: object
+      properties:
+        platform:
+          type: string
+          enum:
+          - WEB
+          - ANDROID
+          - IOS
+        endpointOrToken:
+          type: string
+        keys:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+      - platform
+      - endpointOrToken
+    BusinessProfile:
+      type: object
+      properties:
+        businessName:
+          type: string
+        ownerName:
+          type: string
+        address:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        gstNumber:
+          type: string
+          nullable: true
+        bankName:
+          type: string
+        bankAccountNo:
+          type: string
+        bankIfsc:
+          type: string
+        upiId:
+          type: string
+        footerNote:
+          type: string
+        website:
+          type: string
+        instagramHandle:
+          type: string
+      required:
+      - businessName
+    QuotationSettings:
+      type: object
+      properties:
+        numberPrefix:
+          type: string
+          example: QT-
+        numberDigits: *id006
+        nextNumber: *id006
+        roundOffRule:
+          type: string
+          enum:
+          - 'OFF'
+          - NEAREST_10
+          - NEAREST_50
+          - NEAREST_100
+        validityDays: *id006
+        termsAndConditions:
+          type: string
+    NamedEntry:
+      type: object
+      properties:
+        id: *id011
+        name:
+          type: string
+        sortOrder: *id006
+        isActive: *id012
+        inUse:
+          type: boolean
+          description: True = can only be deactivated (E-09).
+    NamedEntryInput:
+      type: object
+      properties:
+        name:
+          type: string
+        sortOrder: *id006
+        isActive: *id012
+      required:
+      - name
+    Item:
+      type: object
+      properties:
+        id: *id011
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+          example: Par light
+        unit:
+          type: string
+          example: nos
+        defaultRate: *id014
+        isActive: *id012
+    ItemInput:
+      type: object
+      properties:
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+        name:
+          type: string
+        unit:
+          type: string
+        defaultRate: *id014
+        isActive: *id012
+      required:
+      - name
+      - defaultRate
+    RateChange:
+      type: object
+      properties:
+        oldRate: *id014
+        newRate: *id014
+        changedAt: *id015
+    ChangeEntry:
+      type: object
+      properties:
+        id: *id011
+        entity:
+          type: string
+          example: payments
+        recordId: *id011
+        action:
+          type: string
+          enum:
+          - CREATE
+          - UPDATE
+          - DELETE
+        oldValues:
+          type: object
+        newValues:
+          type: object
+        changedAt: *id015
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+          - UP
+          - DOWN
+  responses:
+    BadRequest:
+      description: Invalid input or a business rule refused it
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: VALIDATION_FAILED
+              message: Date cannot be in the future.
+    Unauthorized:
+      description: Not signed in, token expired, or signed in on another device
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: SIGNED_IN_ELSEWHERE
+              message: You signed in on another device.
+    Forbidden:
+      description: Not allowed, or the feature is off for this company
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: FEATURE_DISABLED
+              message: Crew is not enabled for your plan.
+    NotFound:
+      description: Not found (or belongs to another company)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: NOT_FOUND
+              message: Event not found.
+    Conflict:
+      description: Conflicts with current data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: STALE_VERSION
+              message: This event was changed elsewhere. Reload and try again.
